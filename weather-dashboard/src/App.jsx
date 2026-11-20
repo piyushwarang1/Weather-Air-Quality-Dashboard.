@@ -1,9 +1,13 @@
 import "./App.css";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import "leaflet/dist/leaflet.css";
-import WorldMap from"./WorldMap";
+import WorldMap from"./WorldMap.jsx";
 
 function App(){
+ const [selectedPlace, setSelectedPlace] =useState("");
+ const reverseCache =useRef(new Map());
+ const lastReverseRequest = useRef(0);
+
   const[location,setLocation] = useState("");
   const[city,setCity] = useState(null);
   const[loading,setLoading] = useState(false);
@@ -11,23 +15,33 @@ function App(){
   const[weather,setWeather] = useState(null);
   const[selectedLocation,setSelectedLocation] = useState(null);
 
-  const handleLocationSelect =async ({ latitude,longitude}) => {
+  const handleLocationSelect = async ({ latitude,longitude}) => {
     setSelectedLocation({ latitude,longitude});
+    setSelectedPlace("Finding place....")
     setCity(null);
     setWeather(null);
     setError("");
     setLoading(true);
-  
+    
+     try{
+      const placeName =await reverseGeocode(latitude, longitude);
+      setSelectedPlace(placeName);
+     }catch (err) {
+      console.error("Reverse geocashing error", err)
+      setSelectedPlace("Place name unavailable")
+     }
+
     try{
       const weatherUrl= `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,wind_speed_10m,weather_code&timezone=auto`;
-      const weatherRespond = async () => await fetch(weatherUrl);
+      const response =  await fetch(weatherUrl);
 
       if(!response.ok) {
         throw new Error ("Weather reqest failed");
       }
     
     
-    const weatherData =response.json();
+    const weatherData = await response.json();
+    
 
     setWeather(weatherData.current);
   } catch (err) {
@@ -45,7 +59,7 @@ function App(){
 
      if([45,48].includes(code)) return "Fog";
 
-     if ([53,55,56,57].includes(code)) {
+     if ([51,53,55,56,57].includes(code)) {
       return "Drizzely";
      }
      if([61,63,65,66,67].includes(code)) {
@@ -66,6 +80,49 @@ function App(){
      return "Unknown";
   } 
 
+  const reverseGeocode = async (latitude, longitude) => {
+    const key =`${latitude.toFixed(4)},${longitude,toFixed(4)}`;
+
+    if (reverseCache.current.has(key)){
+      return reverseCache.current.get(key);
+    }
+    
+
+    if (Date.now() - lastReverseRequest.current < 1000) {
+      throw new error('Place wait before slecting another location.');
+    }
+
+    lastReverseRequest.current =Date.now();
+
+    const url =`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}&zoom=10&addressdetails=1`
+
+    const response =await fetch(url);
+    if(!response.ok) {
+      throw new Error("Reverse geocoding failed");
+    }
+
+    const dta = await response.json();
+    const address = data.address || {};
+
+    const place =
+    address.city||
+    address.town ||
+    address.village ||
+    address.suburbs||
+    address.country||
+    address.state ||
+    "Unknown Place";
+
+  const region = [ address.state,address.country]
+    .filter(Boolean)
+    .filter(value => value !== place);
+
+  const result =[place, ...region].join(", ");
+  
+  reverseCache.current.set(key, result);
+
+  return result;
+  }
 
   const handleSearch = async (e) => {
     e.preventDefault();
@@ -122,7 +179,8 @@ function App(){
         <h3>SkyWeather</h3>
        
       </div>
-      <div className="left">
+      
+        
       <header>
          <form className="search-box" onSubmit={handleSearch}>
 
@@ -133,9 +191,15 @@ function App(){
 
       </header>
 
+      <div className="contaner">
+      <div className="left">
       {error && <p>{error}</p>}
-      <p>Selected Location: {selectedLocation ? `${selectedLocation.name}, ${selectedLocation.country}` : "None"}</p>
-
+      <div className="selected-location">
+      <p>Selected Location:{
+      selectedLocation
+         ? selectedPlace : "None"}</p>
+         <p>Place data © OpenStreetMap contributors</p>
+</div>
       {city && (
         <div className="city-result">
           <h2>{city.name},{city.country}</h2>
@@ -168,6 +232,7 @@ function App(){
       <div className="world-map">
       <WorldMap onLocationSelect={handleLocationSelect} />
       </div>
+    </div>
     </div>
     </div>
     
